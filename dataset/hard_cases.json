@@ -1,0 +1,8 @@
+{
+  "ground_truth": {
+    "top_k": 3,
+    "rerank_enabled": true
+  },
+  "notes": "High top_k without rerank floods context; overflow flag must clear after fix.",
+  "sample_queries": ["q1", "q2"]
+}

@@ -1,0 +1,7 @@
+{
+  "ground_truth": {
+    "embedding_model": "text-embedding-3-small"
+  },
+  "notes": "Index and query must use the same embedding model; reindex after changing index model.",
+  "sample_queries": ["q1", "q2"]
+}

@@ -1,0 +1,18 @@
+name: rag-pipeline-debugger
+version: "1.0.0"
+description: "Debug a broken RAG pipeline (chunking, embedding mismatch, context overflow)."
+tags:
+  - openenv
+  - real-world
+  - rag
+  - retrieval
+tasks:
+  - id: task_easy
+    difficulty: easy
+    description: "Fix chunk_size so retrieved chunks align with ~500-token documents."
+  - id: task_medium
+    difficulty: medium
+    description: "Align index/query embedding models and re-index the corpus."
+  - id: task_hard
+    difficulty: hard
+    description: "Reduce top_k and enable reranking to avoid context window overflow."

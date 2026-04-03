@@ -1,0 +1,7 @@
+{
+  "ground_truth": {
+    "chunk_size": 500
+  },
+  "notes": "Documents are ~500 tokens; initial chunk_size is wrong (2000).",
+  "sample_queries": ["q1", "q2"]
+}
