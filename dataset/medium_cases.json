@@ -1,6 +1,7 @@
 {
   "ground_truth": {
-    "embedding_model": "text-embedding-3-small"
+    "embedding_model": "text-embedding-3-small",
+    "retrieved_fingerprint": "doc_a:0|doc_a:1|doc_a:2|doc_a:3|doc_a:4"
   },
   "notes": "Index and query must use the same embedding model; reindex after changing index model.",
   "sample_queries": ["q1", "q2"]

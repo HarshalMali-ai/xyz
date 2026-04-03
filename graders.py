@@ -46,22 +46,49 @@ def grade_episode(task_id: str, final_config: dict[str, Any], episode: dict[str,
 
 def _grade_easy(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
     score = 0.0
-    if int(cfg.get("chunk_size", -1)) == int(gt["chunk_size"]):
-        score += 0.7
+    expected_fp = gt.get("retrieved_fingerprint")
+    fp = str(cfg.get("retrieved_fingerprint", ""))
+    if expected_fp:
+        if fp == expected_fp:
+            score += 0.7
+        elif not fp:
+            # If callers didn't provide retrieval artifacts, fall back to config-based checks.
+            if int(cfg.get("chunk_size", -1)) == int(gt["chunk_size"]):
+                score += 0.7
+    else:
+        # Backward-compatible fallback (should rarely be used)
+        if int(cfg.get("chunk_size", -1)) == int(gt["chunk_size"]):
+            score += 0.7
     if bool(cfg.get("reindex_completed")):
         score += 0.3
     return min(1.0, score)
 
 
 def _grade_medium(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
-    m = str(cfg.get("embedding_model", ""))
-    qm = str(cfg.get("query_embedding_model", ""))
-    t = str(gt["embedding_model"])
     score = 0.0
-    if m == t:
-        score += 0.35
-    if qm == t:
-        score += 0.35
+    expected_fp = gt.get("retrieved_fingerprint")
+    fp = str(cfg.get("retrieved_fingerprint", ""))
+    if expected_fp:
+        if fp == expected_fp:
+            score += 0.7
+        elif not fp:
+            # If retrieval artifacts are missing, fall back to config-based checks.
+            m = str(cfg.get("embedding_model", ""))
+            qm = str(cfg.get("query_embedding_model", ""))
+            t = str(gt["embedding_model"])
+            if m == t:
+                score += 0.35
+            if qm == t:
+                score += 0.35
+    else:
+        # Backward-compatible fallback (should rarely be used)
+        m = str(cfg.get("embedding_model", ""))
+        qm = str(cfg.get("query_embedding_model", ""))
+        t = str(gt["embedding_model"])
+        if m == t:
+            score += 0.35
+        if qm == t:
+            score += 0.35
     if bool(cfg.get("reindex_completed")):
         score += 0.3
     return min(1.0, score)
@@ -69,13 +96,36 @@ def _grade_medium(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
 
 def _grade_hard(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
     score = 0.0
+
+    # Prefer retrieval fingerprint match (it reflects top_k + reranking effects)
+    expected_fp = gt.get("retrieved_fingerprint")
+    fp = str(cfg.get("retrieved_fingerprint", ""))
+    if expected_fp:
+        if fp:
+            if fp == expected_fp:
+                score += 0.45
+        else:
+            # Backward-compatible fallback when retrieval artifacts aren't provided.
+            tk = int(cfg.get("top_k", 999))
+            if tk <= int(gt["top_k"]):
+                score += 0.45
+            if bool(cfg.get("rerank_enabled")) == bool(gt["rerank_enabled"]):
+                score += 0.35
+            if not bool(cfg.get("context_overflow_detected")):
+                score += 0.2
+            return min(1.0, score)
+
     tk = int(cfg.get("top_k", 999))
     if tk <= int(gt["top_k"]):
-        score += 0.45
+        score += 0.25
+
     if bool(cfg.get("rerank_enabled")) == bool(gt["rerank_enabled"]):
-        score += 0.35
+        score += 0.15
+
+    # context_overflow_detected is produced by retrieval simulation
     if not bool(cfg.get("context_overflow_detected")):
-        score += 0.2
+        score += 0.15
+
     return min(1.0, score)
 
 

@@ -1,6 +1,7 @@
 {
   "ground_truth": {
-    "chunk_size": 500
+    "chunk_size": 500,
+    "retrieved_fingerprint": "doc_a:0|doc_a:1|doc_a:2|doc_a:3|doc_a:4"
   },
   "notes": "Documents are ~500 tokens; initial chunk_size is wrong (2000).",
   "sample_queries": ["q1", "q2"]
