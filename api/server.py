@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -15,9 +16,21 @@ from graders import grade_episode
 from models import Action
 from tasks import list_tasks_payload
 
-app = FastAPI(title="OpenEnv RAG Pipeline Debugger", version="1.0.0")
-
 _env: RAGPipelineEnv | None = None
+_tasks_payload_cache: list[dict[str, Any]] | None = None
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Warm common state eagerly so the service is ready before the first request.
+    global _tasks_payload_cache
+    get_env()
+    if _tasks_payload_cache is None:
+        _tasks_payload_cache = list_tasks_payload()
+    yield
+
+
+app = FastAPI(title="OpenEnv RAG Pipeline Debugger", version="1.0.0", lifespan=lifespan)
 
 
 def get_env() -> RAGPipelineEnv:
@@ -44,6 +57,18 @@ class GraderBody(BaseModel):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {
+        "name": "OpenEnv RAG Pipeline Debugger",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health",
+        "tasks": "/tasks",
+        "state": "/state",
+    }
 
 
 @app.post("/reset")
@@ -85,7 +110,10 @@ def state_route() -> dict[str, Any]:
 
 @app.get("/tasks")
 def tasks_route() -> dict[str, Any]:
-    return {"tasks": list_tasks_payload()}
+    global _tasks_payload_cache
+    if _tasks_payload_cache is None:
+        _tasks_payload_cache = list_tasks_payload()
+    return {"tasks": _tasks_payload_cache}
 
 
 @app.post("/grader")

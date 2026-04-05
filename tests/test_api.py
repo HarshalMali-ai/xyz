@@ -5,6 +5,12 @@ from api.server import app
 client = TestClient(app)
 
 
+def test_root() -> None:
+    r = client.get("/")
+    assert r.status_code == 200
+    assert r.json()["status"] == "running"
+
+
 def test_health() -> None:
     r = client.get("/health")
     assert r.status_code == 200

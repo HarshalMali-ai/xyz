@@ -1,3 +1,12 @@
+---
+title: OpenEnv RAG Pipeline Debugger
+emoji: "🧪"
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
+
 # OpenEnv — RAG Pipeline Debugger
 
 Hackathon Round 1 environment: an agent debugs a **simulated** RAG stack (chunking, embedding alignment, retrieval flooding). **Graders are programmatic** (no LLM-as-judge). Final scoring uses **retrieval fingerprints** and overflow signals from the simulator, not only raw config equality.
