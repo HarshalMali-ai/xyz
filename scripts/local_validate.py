@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 REQUIRED_FILES = [
+    "inference.py",
     "openenv.yaml",
     "Dockerfile",
     "api/server.py",
