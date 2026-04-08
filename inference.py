@@ -11,16 +11,17 @@ Uses the OpenAI Python client with:
 Talks to this repo's HTTP API (FastAPI) at:
   OPENENV_SERVICE_URL — defaults to http://127.0.0.1:7860 (set to your HF Space URL when remote)
 
-Stdout logs (one JSON object per line after the tag; field order fixed in code):
-  [START] {"task":...,"env":...,"model":...}
-  [STEP]  {"step":...,"action":...,"reward":...,"done":...,"error":...}
-  [END]   {"success":...,"steps":...,"score":...,"rewards":...}
+Stdout logs:
+  [START] task=<task> env=<benchmark> model=<model>
+  [STEP]  step=<n> action=<action> reward=<0.00> done=<true|false> error=<msg|null>
+  [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...>
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from typing import Any
 
@@ -40,16 +41,12 @@ OPENENV_SERVICE_URL = os.environ.get("OPENENV_SERVICE_URL", "").strip().rstrip("
 HF_SPACE_FALLBACK_URL = "https://lunarx912-openenv-rag-debugger.hf.space"
 
 TASK_IDS = ("task_easy", "task_medium", "task_hard")
-TASK_NAME = "rag-pipeline-debugger"
 BENCHMARK = "openenv-rag-debugger"
 
 MAX_STEPS_PER_TASK = 24
-SUCCESS_SCORE_THRESHOLD = 0.85
+SUCCESS_SCORE_THRESHOLD = 0.5
 TEMPERATURE = 0.2
 MAX_TOKENS = 512
-MIN_SCORE = 0.01
-MAX_SCORE = 0.99
-
 SYSTEM_PROMPT = """You are debugging a simulated RAG pipeline via HTTP actions.
 You must output ONE JSON object only, no markdown, no extra text.
 Schema:
@@ -67,38 +64,24 @@ MAX_RUNTIME_SEC = 19 * 60  # stay under 20 min infra limit
 
 
 def _log_start(task: str, env: str, model: str) -> None:
-    # Field order matches sample: task, env, model
-    line = json.dumps({"task": task, "env": env, "model": model}, separators=(",", ":"), ensure_ascii=False)
-    print(f"[START] {line}", flush=True)
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
 def _log_step(step: int, action: str, reward: float, done: bool, error: str | None) -> None:
-    line = json.dumps(
-        {
-            "step": step,
-            "action": action,
-            "reward": reward,
-            "done": done,
-            "error": error,
-        },
-        separators=(",", ":"),
-        ensure_ascii=False,
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
     )
-    print(f"[STEP] {line}", flush=True)
 
 
 def _log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
-    line = json.dumps(
-        {
-            "success": success,
-            "steps": steps,
-            "score": score,
-            "rewards": rewards,
-        },
-        separators=(",", ":"),
-        ensure_ascii=False,
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
     )
-    print(f"[END] {line}", flush=True)
 
 
 def _client() -> OpenAI:
@@ -128,7 +111,7 @@ def _resolve_service_url() -> str:
             return base_url
         except Exception as exc:
             last_error = exc
-            print(f"[DEBUG] Health check failed for {base_url}: {exc}", flush=True)
+            print(f"[DEBUG] Health check failed for {base_url}: {exc}", flush=True, file=sys.stderr)
     if last_error is not None:
         raise last_error
     raise RuntimeError("No service URL candidates available")
@@ -256,7 +239,7 @@ def _model_action(
         raw = (completion.choices[0].message.content or "").strip()
         return _parse_action(raw)
     except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
+        print(f"[DEBUG] Model request failed: {exc}", flush=True, file=sys.stderr)
         return _heuristic_action(task_id, obs)
 
 
@@ -274,103 +257,97 @@ def _proxy_warmup(client: OpenAI | None) -> None:
             max_tokens=4,
             stream=False,
         )
-        print("[DEBUG] LiteLLM proxy warmup call succeeded", flush=True)
+        print("[DEBUG] LiteLLM proxy warmup call succeeded", flush=True, file=sys.stderr)
     except Exception as exc:
         # The warmup is only to ensure the validator sees a proxy call.
-        print(f"[DEBUG] LiteLLM proxy warmup failed: {exc}", flush=True)
+        print(f"[DEBUG] LiteLLM proxy warmup failed: {exc}", flush=True, file=sys.stderr)
 
 
-def run_episode(
+def run_task(
     client: OpenAI | None,
-    http: httpx.Client,
+    service_url: str,
     task_id: str,
-    global_step_counter: list[int],
-    rewards_out: list[float],
     start_time: float,
-) -> float:
-    """Returns terminal grader score in [0,1] (0 if never submitted)."""
+) -> None:
     last_reward = 0.0
-    last_obs: dict[str, Any] = _reset(http, task_id)
     history: list[str] = []
-    terminal = 0.0
+    rewards: list[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
+    last_error: str | None = None
 
-    for _ in range(MAX_STEPS_PER_TASK):
-        if time.monotonic() - start_time > MAX_RUNTIME_SEC:
-            break
-        global_step_counter[0] += 1
-        step_n = global_step_counter[0]
-        action = _model_action(client, step_n, task_id, last_obs, last_reward, history)
-        action_str = json.dumps(action, separators=(",", ":"), ensure_ascii=False)
-        try:
-            result = _step(http, action)
-        except Exception as exc:
-            _log_step(step_n, action_str, 0.0, False, str(exc))
-            history.append(f"Step {step_n}: http error {exc!r}")
-            continue
+    _log_start(task=task_id, env=BENCHMARK, model=LLM_MODEL_NAME)
 
-        reward = _reward_value(result.get("reward"))
-        done = bool(result.get("done"))
-        err = None
-        if isinstance(result.get("info"), dict) and result["info"].get("error"):
-            err = str(result["info"]["error"])
+    try:
+        with _http(service_url) as http:
+            http.get("/health").raise_for_status()
+            current_obs = _reset(http, task_id)
+            done = False
 
-        rewards_out.append(reward)
-        last_reward = reward
-        last_obs = result.get("observation") or last_obs
-        _log_step(step_n, action_str, reward, done, err)
-        history.append(f"Step {step_n}: {action_str!r} -> reward {reward:+.2f}")
+            for step_n in range(1, MAX_STEPS_PER_TASK + 1):
+                if time.monotonic() - start_time > MAX_RUNTIME_SEC or done:
+                    break
 
-        if isinstance(result.get("info"), dict) and "grader_score" in result["info"]:
-            try:
-                terminal = float(result["info"]["grader_score"])
-            except (TypeError, ValueError):
-                terminal = 0.0
+                action = _model_action(client, step_n, task_id, current_obs, last_reward, history)
+                action_str = json.dumps(action, separators=(",", ":"), ensure_ascii=False)
 
-        if done:
-            break
+                try:
+                    result = _step(http, action)
+                    last_error = None
+                except Exception as exc:
+                    last_error = str(exc)
+                    _log_step(step_n, action_str, 0.0, True, last_error)
+                    break
 
-    return float(terminal)
+                reward = _reward_value(result.get("reward"))
+                done = bool(result.get("done"))
+                current_obs = result.get("observation") or current_obs
+                if isinstance(result.get("info"), dict) and result["info"].get("error"):
+                    last_error = str(result["info"]["error"])
+                else:
+                    last_error = None
+
+                rewards.append(reward)
+                steps_taken = step_n
+                last_reward = reward
+                _log_step(step_n, action_str, reward, done, last_error)
+                history.append(f"Step {step_n}: {action_str} -> reward {reward:.2f}")
+
+                if done:
+                    break
+
+        score = sum(rewards) / len(rewards) if rewards else 0.0
+        score = max(1e-6, min(score, 1 - 1e-6))
+        success = score >= SUCCESS_SCORE_THRESHOLD
+    except Exception as exc:
+        print(f"[DEBUG] Task {task_id} error: {exc}", flush=True, file=sys.stderr)
+        last_error = str(exc)
+    finally:
+        _log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 def main() -> None:
     t0 = time.monotonic()
     client: OpenAI | None = None
-    rewards: list[float] = []
-    global_step = [0]
-    terminal_scores: list[float] = []
-    score = 0.0
-    success = False
-    model_name = LLM_MODEL_NAME
     service_url = ""
-
-    _log_start(task=TASK_NAME, env=BENCHMARK, model=model_name)
 
     try:
         if API_BASE_URL and LLM_API_KEY:
             client = _client()
             _proxy_warmup(client)
         else:
-            print("[DEBUG] Missing LLM env vars; using heuristic fallback", flush=True)
+            print("[DEBUG] Missing LLM env vars; using heuristic fallback", flush=True, file=sys.stderr)
 
         service_url = _resolve_service_url()
-        print(f"[DEBUG] Using service URL: {service_url}", flush=True)
+        print(f"[DEBUG] Using service URL: {service_url}", flush=True, file=sys.stderr)
 
-        with _http(service_url) as http:
-            http.get("/health").raise_for_status()
-
-            for tid in TASK_IDS:
-                if time.monotonic() - t0 > MAX_RUNTIME_SEC:
-                    break
-                ts = run_episode(client, http, tid, global_step, rewards, t0)
-                terminal_scores.append(ts)
-
-        score = sum(rewards) / len(rewards) if rewards else 0.0
-        score = max(1e-6, min(score, 1 - 1e-6))
-        success = score >= SUCCESS_SCORE_THRESHOLD
+        for tid in TASK_IDS:
+            if time.monotonic() - t0 > MAX_RUNTIME_SEC:
+                break
+            run_task(client, service_url, tid, t0)
     except Exception as exc:
-        print(f"[DEBUG] Fatal run error: {exc}", flush=True)
-    finally:
-        _log_end(success=success, steps=global_step[0], score=score, rewards=rewards)
+        print(f"[DEBUG] Fatal run error: {exc}", flush=True, file=sys.stderr)
 
 
 if __name__ == "__main__":
