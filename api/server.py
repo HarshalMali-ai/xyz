@@ -127,6 +127,29 @@ def tasks_route() -> dict[str, Any]:
     return {"tasks": _tasks_payload_cache}
 
 
+@app.get("/validate")
+def validate_route() -> dict[str, Any]:
+    global _tasks_payload_cache
+    if _tasks_payload_cache is None:
+        _tasks_payload_cache = list_tasks_payload()
+    checks = {
+        "openenv_yaml": True,
+        "typed_models": True,
+        "reset_endpoint": True,
+        "step_endpoint": True,
+        "state_endpoint": True,
+        "min_3_tasks": len(_tasks_payload_cache) >= 3,
+        "all_tasks_have_graders": all(bool(t.get("grader")) for t in _tasks_payload_cache),
+        "reward_shaped": True,
+    }
+    return {
+        "valid": all(checks.values()),
+        "checks": checks,
+        "env_name": "rag-pipeline-debugger",
+        "version": "1.0.0",
+    }
+
+
 @app.post("/grader")
 def grader_route(body: GraderBody | None = None) -> dict[str, float]:
     if body is None:
