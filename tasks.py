@@ -16,6 +16,9 @@ TASK_SPECS: dict[str, dict[str, Any]] = {
             "endpoint": "/grader",
             "method": "POST",
         },
+        "has_grader": True,
+        "grader_endpoint": "/grade/task_easy",
+        "grader_method": "GET",
         "action_schema": {
             "configure": {
                 "payload": {
@@ -42,6 +45,9 @@ TASK_SPECS: dict[str, dict[str, Any]] = {
             "endpoint": "/grader",
             "method": "POST",
         },
+        "has_grader": True,
+        "grader_endpoint": "/grade/task_medium",
+        "grader_method": "GET",
         "action_schema": {
             "configure": {
                 "payload": {
@@ -68,6 +74,9 @@ TASK_SPECS: dict[str, dict[str, Any]] = {
             "endpoint": "/grader",
             "method": "POST",
         },
+        "has_grader": True,
+        "grader_endpoint": "/grade/task_hard",
+        "grader_method": "GET",
         "action_schema": {
             "configure": {
                 "payload": {
@@ -94,7 +103,10 @@ def list_tasks_payload() -> list[dict[str, Any]]:
                 "id": tid,
                 "difficulty": spec["difficulty"],
                 "description": spec["description"],
-                "grader": spec["grader"],
+                "grader": bool(spec["has_grader"]),
+                "grader_meta": spec["grader"],
+                "grader_endpoint": spec["grader_endpoint"],
+                "grader_method": spec["grader_method"],
                 "action_schema": spec["action_schema"],
             }
         )

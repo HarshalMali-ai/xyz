@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
 from environment.rag_environment import RAGPipelineEnv
@@ -52,6 +52,17 @@ class GraderBody(BaseModel):
     task_id: str = "task_easy"
     final_config: dict[str, Any] = Field(default_factory=dict)
     episode: dict[str, Any] | None = None
+
+
+def _score_for_task(task_id: str, final_config: dict[str, Any] | None = None, episode: dict[str, Any] | None = None) -> float:
+    cfg = final_config or {}
+    if not cfg:
+        st = get_env().state()
+        if st.get("task_id") == task_id:
+            cfg = st.get("config", {}) or {}
+            if episode is None:
+                episode = {"actions": st.get("episode_actions", [])}
+    return float(grade_episode(task_id, cfg, episode))
 
 
 @app.get("/health")
@@ -121,10 +132,27 @@ def grader_route(body: GraderBody | None = None) -> dict[str, float]:
     if body is None:
         return {"score": MIN_SCORE}
     try:
-        s = grade_episode(body.task_id, body.final_config or {}, body.episode)
-        return {"score": float(s)}
+        return {"score": _score_for_task(body.task_id, body.final_config, body.episode)}
     except Exception:
         return {"score": MIN_SCORE}
+
+
+@app.get("/grade/{task_id}")
+@app.post("/grade/{task_id}")
+async def grade_task_route(task_id: str, request: Request) -> dict[str, Any]:
+    try:
+        payload: dict[str, Any] = {}
+        if request.method == "POST":
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+        final_config = payload.get("final_config") or payload.get("config") or {}
+        episode = payload.get("episode")
+        score = _score_for_task(task_id, final_config, episode)
+        return {"task_id": task_id, "score": score}
+    except Exception:
+        return {"task_id": task_id, "score": MIN_SCORE}
 
 
 @app.post("/baseline")
