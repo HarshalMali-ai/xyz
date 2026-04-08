@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 
-MIN_REWARD = 0.001
-MAX_REWARD = 0.999
+MIN_REWARD = 0.01
+MAX_REWARD = 0.99
 
 
 def _clamp(x: float) -> float:

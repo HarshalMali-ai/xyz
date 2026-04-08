@@ -47,6 +47,8 @@ MAX_STEPS_PER_TASK = 24
 SUCCESS_SCORE_THRESHOLD = 0.85
 TEMPERATURE = 0.2
 MAX_TOKENS = 512
+MIN_SCORE = 0.01
+MAX_SCORE = 0.99
 
 SYSTEM_PROMPT = """You are debugging a simulated RAG pipeline via HTTP actions.
 You must output ONE JSON object only, no markdown, no extra text.
@@ -366,7 +368,7 @@ def main() -> None:
             score = sum(terminal_scores) / len(terminal_scores)
         else:
             score = 0.0
-        score = min(max(score, 0.0), 1.0)
+        score = max(MIN_SCORE, min(MAX_SCORE, score))
         success = score >= SUCCESS_SCORE_THRESHOLD
     except Exception as exc:
         print(f"[DEBUG] Fatal run error: {exc}", flush=True)
