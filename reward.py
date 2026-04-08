@@ -1,12 +1,16 @@
-"""Dense reward shaping (-1.0 .. 1.0) for RAG pipeline debugging."""
+"""Dense reward shaping strictly inside (0.0, 1.0) for validator compatibility."""
 
 from __future__ import annotations
 
 from typing import Any
 
 
+MIN_REWARD = 0.001
+MAX_REWARD = 0.999
+
+
 def _clamp(x: float) -> float:
-    return max(-1.0, min(1.0, x))
+    return max(MIN_REWARD, min(MAX_REWARD, x))
 
 
 def step_reward(
@@ -21,13 +25,13 @@ def step_reward(
     r = 0.0
 
     if action_type == "request_hint":
-        r -= 0.05
-        breakdown["hint_penalty"] = -0.05
+        r += MIN_REWARD
+        breakdown["hint_penalty"] = MIN_REWARD
         return _clamp(r), breakdown
 
     if loop_penalty:
-        r -= 0.05
-        breakdown["loop_penalty"] = -0.05
+        r = max(MIN_REWARD, r * 0.5)
+        breakdown["loop_penalty"] = "applied"
 
     if task_id == "task_easy":
         expected_fp = str(ground_truth.get("retrieved_fingerprint", ""))
@@ -77,5 +81,5 @@ def step_reward(
 
 
 def terminal_reward_from_grader(grader_score: float) -> float:
-    """Map grader [0,1] to [-1,1] for final step: strong success -> high positive."""
-    return _clamp(-1.0 + 2.0 * float(grader_score))
+    """Return terminal reward directly in the validator's expected open interval."""
+    return _clamp(float(grader_score))

@@ -25,7 +25,7 @@ def test_null_action() -> None:
     e = RAGPipelineEnv()
     e.reset(task_id="task_easy")
     o, r, done, info = e.step(None)
-    assert r == -0.1
+    assert 0.0 < r < 1.0
     assert done is False
 
 

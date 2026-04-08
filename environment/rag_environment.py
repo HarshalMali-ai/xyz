@@ -184,20 +184,20 @@ class RAGPipelineEnv:
                 current_context={"error": "call reset first"},
                 step_count=0,
             )
-            return obs, -0.1, False, {"error": "reset required"}
+            return obs, 0.001, False, {"error": "reset required"}
 
         if action is None:
-            return self._observe(), -0.1, False, {"error": "null action"}
+            return self._observe(), 0.001, False, {"error": "null action"}
 
         try:
             Action.model_validate(action.model_dump())
         except ValidationError as e:
-            return self._observe(), -0.1, False, {"error": "invalid action", "detail": str(e)}
+            return self._observe(), 0.001, False, {"error": "invalid action", "detail": str(e)}
 
         self._step_count += 1
         if self._step_count > self.max_steps:
             self._done = True
-            return self._observe(), -0.2, True, {"error": "max_steps"}
+            return self._observe(), 0.001, True, {"error": "max_steps"}
 
         a = action.action_type
         payload = action.payload or {}
@@ -248,7 +248,7 @@ class RAGPipelineEnv:
             return self._observe(), reward, True, info
 
         else:
-            reward = -0.1
+            reward = 0.001
             info["error"] = f"unknown action_type: {a}"
 
         self._episode_actions.append({"action": a, "payload": payload, "reward": reward})
