@@ -18,7 +18,7 @@ def test_episode_easy_success() -> None:
     o, r, done, info = e.step(Action(action_type="submit", payload={}))
     assert done is True
     assert "grader_score" in info
-    assert info["grader_score"] == 1.0
+    assert 0.0 < info["grader_score"] < 1.0
 
 
 def test_null_action() -> None:

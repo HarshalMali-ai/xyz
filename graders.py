@@ -1,4 +1,4 @@
-"""Deterministic programmatic graders (no LLM). Returns score in [0.0, 1.0]."""
+"""Deterministic programmatic graders (no LLM). Returns score in (0.0, 1.0)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 _ROOT = Path(__file__).resolve().parent
+MIN_SCORE = 0.001
+MAX_SCORE = 0.999
+
+
+def _strict_score(value: float) -> float:
+    return max(MIN_SCORE, min(MAX_SCORE, float(value)))
 
 
 def _load_cases(name: str) -> dict[str, Any]:
@@ -36,12 +42,12 @@ def grade_episode(task_id: str, final_config: dict[str, Any], episode: dict[str,
     cfg = final_config or {}
 
     if task_id == "task_easy":
-        return _grade_easy(cfg, gt)
+        return _strict_score(_grade_easy(cfg, gt))
     if task_id == "task_medium":
-        return _grade_medium(cfg, gt)
+        return _strict_score(_grade_medium(cfg, gt))
     if task_id == "task_hard":
-        return _grade_hard(cfg, gt)
-    return 0.0
+        return _strict_score(_grade_hard(cfg, gt))
+    return MIN_SCORE
 
 
 def _grade_easy(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
@@ -61,7 +67,7 @@ def _grade_easy(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
             score += 0.7
     if bool(cfg.get("reindex_completed")):
         score += 0.3
-    return min(1.0, score)
+    return score
 
 
 def _grade_medium(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
@@ -91,7 +97,7 @@ def _grade_medium(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
             score += 0.35
     if bool(cfg.get("reindex_completed")):
         score += 0.3
-    return min(1.0, score)
+    return score
 
 
 def _grade_hard(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
@@ -113,7 +119,7 @@ def _grade_hard(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
                 score += 0.35
             if not bool(cfg.get("context_overflow_detected")):
                 score += 0.2
-            return min(1.0, score)
+            return score
 
     tk = int(cfg.get("top_k", 999))
     if tk <= int(gt["top_k"]):
@@ -126,11 +132,11 @@ def _grade_hard(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
     if not bool(cfg.get("context_overflow_detected")):
         score += 0.15
 
-    return min(1.0, score)
+    return score
 
 
 def grade_action_dummy(task_id: str, payload: dict[str, Any] | None) -> float:
     """For /grader tests: never crash on malformed input."""
     if payload is None:
-        return 0.0
+        return MIN_SCORE
     return grade_episode(task_id, payload)

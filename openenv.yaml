@@ -10,9 +10,21 @@ tasks:
   - id: task_easy
     difficulty: easy
     description: "Fix chunk_size so retrieved chunks align with ~500-token documents."
+    grader:
+      type: programmatic
+      endpoint: /grader
+      method: POST
   - id: task_medium
     difficulty: medium
     description: "Align index/query embedding models and re-index the corpus."
+    grader:
+      type: programmatic
+      endpoint: /grader
+      method: POST
   - id: task_hard
     difficulty: hard
     description: "Reduce top_k and enable reranking to avoid context window overflow."
+    grader:
+      type: programmatic
+      endpoint: /grader
+      method: POST

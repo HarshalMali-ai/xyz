@@ -23,6 +23,7 @@ def test_tasks_schema() -> None:
     tasks = r.json()["tasks"]
     assert len(tasks) >= 3
     assert "action_schema" in tasks[0]
+    assert "grader" in tasks[0]
 
 
 def test_reset_step_submit() -> None:
@@ -38,3 +39,4 @@ def test_baseline_fast() -> None:
     body = r.json()
     assert "scores" in body
     assert set(body["scores"].keys()) == {"task_easy", "task_medium", "task_hard"}
+    assert all(0.0 < v < 1.0 for v in body["scores"].values())

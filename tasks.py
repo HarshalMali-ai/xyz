@@ -11,6 +11,11 @@ TASK_SPECS: dict[str, dict[str, Any]] = {
             "Fix chunking: documents are ~500 tokens each but chunk_size is set to 2000, "
             "so retrieval returns wrong spans. Set chunk_size to the correct value."
         ),
+        "grader": {
+            "type": "programmatic",
+            "endpoint": "/grader",
+            "method": "POST",
+        },
         "action_schema": {
             "configure": {
                 "payload": {
@@ -32,6 +37,11 @@ TASK_SPECS: dict[str, dict[str, Any]] = {
             "Fix embedding mismatch: the vector index was built with one embedding model "
             "but queries use another. Align models and re-index."
         ),
+        "grader": {
+            "type": "programmatic",
+            "endpoint": "/grader",
+            "method": "POST",
+        },
         "action_schema": {
             "configure": {
                 "payload": {
@@ -53,6 +63,11 @@ TASK_SPECS: dict[str, dict[str, Any]] = {
             "Reduce context overflow: top_k is too high and reranking is off, so the LLM "
             "context is flooded and answers degrade. Lower top_k and enable reranking."
         ),
+        "grader": {
+            "type": "programmatic",
+            "endpoint": "/grader",
+            "method": "POST",
+        },
         "action_schema": {
             "configure": {
                 "payload": {
@@ -79,6 +94,7 @@ def list_tasks_payload() -> list[dict[str, Any]]:
                 "id": tid,
                 "difficulty": spec["difficulty"],
                 "description": spec["description"],
+                "grader": spec["grader"],
                 "action_schema": spec["action_schema"],
             }
         )

@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from environment.rag_environment import RAGPipelineEnv
-from graders import grade_episode
+from graders import MIN_SCORE, grade_episode
 from models import Action
 from tasks import list_tasks_payload
 
@@ -119,12 +119,12 @@ def tasks_route() -> dict[str, Any]:
 @app.post("/grader")
 def grader_route(body: GraderBody | None = None) -> dict[str, float]:
     if body is None:
-        return {"score": 0.0}
+        return {"score": MIN_SCORE}
     try:
         s = grade_episode(body.task_id, body.final_config or {}, body.episode)
         return {"score": float(s)}
     except Exception:
-        return {"score": 0.0}
+        return {"score": MIN_SCORE}
 
 
 @app.post("/baseline")
