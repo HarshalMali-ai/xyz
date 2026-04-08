@@ -364,11 +364,8 @@ def main() -> None:
                 ts = run_episode(client, http, tid, global_step, rewards, t0)
                 terminal_scores.append(ts)
 
-        if terminal_scores:
-            score = sum(terminal_scores) / len(terminal_scores)
-        else:
-            score = 0.0
-        score = max(MIN_SCORE, min(MAX_SCORE, score))
+        score = sum(rewards) / len(rewards) if rewards else 0.0
+        score = max(1e-6, min(score, 1 - 1e-6))
         success = score >= SUCCESS_SCORE_THRESHOLD
     except Exception as exc:
         print(f"[DEBUG] Fatal run error: {exc}", flush=True)
