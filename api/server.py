@@ -133,11 +133,11 @@ def state_route() -> dict[str, Any]:
 
 
 @app.get("/tasks")
-def tasks_route() -> dict[str, Any]:
+def tasks_route() -> list[dict[str, Any]]:
     global _tasks_payload_cache
     if _tasks_payload_cache is None:
         _tasks_payload_cache = list_tasks_payload()
-    return {"tasks": _tasks_payload_cache}
+    return _tasks_payload_cache
 
 
 @app.get("/validate")

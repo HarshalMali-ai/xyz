@@ -20,7 +20,7 @@ def test_health() -> None:
 def test_tasks_schema() -> None:
     r = client.get("/tasks")
     assert r.status_code == 200
-    tasks = r.json()["tasks"]
+    tasks = r.json()
     assert len(tasks) >= 3
     assert "action_schema" in tasks[0]
     assert "grader" in tasks[0]
