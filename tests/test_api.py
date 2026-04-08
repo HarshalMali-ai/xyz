@@ -30,7 +30,7 @@ def test_reset_step_submit() -> None:
     client.post("/reset", json={"task_id": "task_easy"})
     r = client.post("/step", json={"action": {"action_type": "configure", "payload": {"chunk_size": 500}}})
     assert r.status_code == 200
-    assert r.json()["reward"] >= -1.0
+    assert 0.0 < r.json()["reward"]["score"] < 1.0
 
 
 def test_baseline_fast() -> None:

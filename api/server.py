@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from environment.rag_environment import RAGPipelineEnv
 from graders import MIN_SCORE, grade_episode
-from models import Action
+from models import Action, Reward
 from tasks import list_tasks_payload
 
 _env: RAGPipelineEnv | None = None
@@ -52,6 +52,11 @@ class GraderBody(BaseModel):
     task_id: str = "task_easy"
     final_config: dict[str, Any] = Field(default_factory=dict)
     episode: dict[str, Any] | None = None
+
+
+def _reward_payload(score: float, breakdown: dict[str, Any] | None = None, feedback: str = "") -> dict[str, Any]:
+    reward = Reward(score=float(score), breakdown=breakdown or {}, feedback=feedback)
+    return json.loads(reward.model_dump_json())
 
 
 def _score_for_task(task_id: str, final_config: dict[str, Any] | None = None, episode: dict[str, Any] | None = None) -> float:
@@ -94,6 +99,7 @@ def step_route(body: StepBody | None = None) -> dict[str, Any]:
     env = get_env()
     if body is None or body.action is None:
         obs, r, done, info = env.step(None)
+        reward_payload = _reward_payload(float(r), {"error": "null_action"}, "Null action received")
     else:
         try:
             act = Action.model_validate(body.action)
@@ -101,14 +107,21 @@ def step_route(body: StepBody | None = None) -> dict[str, Any]:
             obs = env.observe()
             return {
                 "observation": json.loads(obs.model_dump_json()),
-                "reward": -0.1,
+                "reward": _reward_payload(MIN_SCORE, {"error": "validation"}, "Action validation failed"),
                 "done": False,
                 "info": {"error": "validation", "detail": str(e)},
             }
         obs, r, done, info = env.step(act)
+        breakdown = info.get("breakdown", {}) if isinstance(info, dict) else {}
+        feedback = "Intermediate progress"
+        if isinstance(info, dict) and info.get("terminal"):
+            feedback = "Task submitted and graded"
+        elif isinstance(info, dict) and info.get("error"):
+            feedback = str(info["error"])
+        reward_payload = _reward_payload(float(r), breakdown if isinstance(breakdown, dict) else {}, feedback)
     return {
         "observation": json.loads(obs.model_dump_json()),
-        "reward": float(r),
+        "reward": reward_payload,
         "done": bool(done),
         "info": info,
     }

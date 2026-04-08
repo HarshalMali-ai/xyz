@@ -217,6 +217,18 @@ def _heuristic_action(task_id: str, obs: dict[str, Any]) -> dict[str, Any]:
     return {"action_type": "submit", "payload": {}}
 
 
+def _reward_value(raw_reward: Any) -> float:
+    if isinstance(raw_reward, dict):
+        try:
+            return float(raw_reward.get("score") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+    try:
+        return float(raw_reward or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _model_action(
     client: OpenAI | None,
     step_n: int,
@@ -294,7 +306,7 @@ def run_episode(
             history.append(f"Step {step_n}: http error {exc!r}")
             continue
 
-        reward = float(result.get("reward") or 0.0)
+        reward = _reward_value(result.get("reward"))
         done = bool(result.get("done"))
         err = None
         if isinstance(result.get("info"), dict) and result["info"].get("error"):
