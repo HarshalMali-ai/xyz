@@ -9,94 +9,151 @@ tags:
   - openenv
 ---
 
-# OpenEnv — RAG Pipeline Debugger
+# OpenEnv RAG Pipeline Debugger
 
-Hackathon Round 1 environment: an agent debugs a **simulated** RAG stack (chunking, embedding alignment, retrieval flooding). **Graders are programmatic** (no LLM-as-judge). Final scoring uses **retrieval fingerprints** and overflow signals from the simulator, not only raw config equality.
+An OpenEnv-compliant benchmark where an agent debugs production-style retrieval-augmented generation pipelines instead of playing a toy game. The environment focuses on the kinds of failures real LLM platform teams see in practice: bad chunking, partial embedding migrations, disabled rerankers, stale indexes, and context-window overflows during customer-facing incidents.
 
-## What this satisfies (Round 1 checklist)
+## Why this benchmark matters
 
-| Requirement | This repo |
-|-------------|-----------|
-| Real-world task (not a game) | RAG / retrieval pipeline debugging |
-| `openenv.yaml` + metadata | Root `openenv.yaml` |
-| ≥ 3 tasks easy → hard | `task_easy`, `task_medium`, `task_hard` |
-| Programmatic graders in `[0, 1]` | `graders.py` |
-| Meaningful dense rewards | `reward.py` + step penalties in `environment/rag_environment.py` |
-| FastAPI + Docker + HF Space | `api/server.py`, `Dockerfile`, port **7860** |
-| **Mandatory `inference.py` in repo root** | Uses **OpenAI** client + `[START]` / `[STEP]` / `[END]` logs |
-| Baseline / reproducibility | `scripts/baseline.py` (heuristic oracle) + `inference.py` (LLM-driven) |
+RAG systems fail quietly. A support bot still returns an answer, but the answer is pulled from the wrong runbook, the wrong language, or a giant wall of irrelevant context. Teams usually discover the problem only after a quality incident.
 
-**Pre-validation (organizer script):** install the framework they specify, e.g. `pip install openenv-core`, then run `openenv validate` from the repo root. If `openenv` is not on PATH, use the exact install command from the hackathon materials.
+This environment turns that real operational pain into a deterministic training benchmark:
 
-**Submission:** only the **team lead** can submit; Space must be tagged **`openenv`**.
+- It models tasks platform teams already perform: inspecting retrieval quality, aligning embeddings, rebuilding indexes, and tuning context budgets.
+- It gives agents partial credit for meaningful progress instead of binary pass/fail grading.
+- It captures realistic tradeoffs between retrieval quality and context efficiency.
+- It stays fully programmatic. No LLM-as-judge logic is needed to score success.
 
-## Layout
+## What is inside
 
-- `inference.py` — **required** LLM baseline (env vars below; structured stdout)
-- `models.py` — `Observation`, `Action`, `Reward` (Pydantic)
-- `tasks.py` — task metadata + action schemas for `GET /tasks`
-- `graders.py` — scores in `[0, 1]`
-- `reward.py` — dense step rewards in `[-1, 1]` (API `step` returns float reward)
-- `dataset/*.json` — ground truth (including expected `retrieved_fingerprint` where used)
-- `environment/rag_environment.py` — env logic; syncs simulation artifacts into config for grading
-- `api/server.py` — FastAPI: `/health`, `/reset`, `/step`, `/state`, `/tasks`, `/baseline`, `/grader`
-- `scripts/baseline.py` — fast deterministic oracle (expects `OPENAI_API_KEY` for checklist-style smoke)
-- `scripts/local_validate.py` — local structural checks if `openenv validate` is unavailable
-- `openenv.yaml` — environment metadata
-- `Dockerfile` — `python:3.11-slim`, `uvicorn` on `0.0.0.0:7860`
+| Property | Value |
+|---|---|
+| Domain | Production RAG debugging |
+| Tasks | 9 total |
+| Difficulty ladder | 3 easy, 3 medium, 3 hard |
+| Episode style | Dense-reward configuration and incident debugging |
+| API | FastAPI on port `7860` |
+| Core actions | `configure`, `reindex`, `submit`, `request_hint` |
 
-## Observation & action space
+## Task set
 
-**Observation** (`Observation`): `task_id`, `task_description`, `current_context` (dict), `step_count`.
+### Easy
 
-`current_context` includes:
+- `easy_chunk_alignment` - fix oversized chunks so support runbooks retrieve procedure-sized evidence
+- `easy_chunk_overlap` - restore chunk overlap so instructions do not break across chunk boundaries
+- `easy_top_k_budget` - trim top-k for short FAQ answers to prevent low-value context flooding
 
-- `pipeline_config` — chunking / embedding / top_k / rerank / reindex flags
-- `simulation` — retrieval preview, `retrieved_fingerprint`, overflow flags, token estimates
+### Medium
 
-**Action** (`Action`): `action_type` ∈ `configure` | `reindex` | `submit` | `request_hint`, plus `payload` (dict).
+- `medium_embedding_migration` - complete a partial embedding migration by aligning index/query models and rebuilding
+- `medium_multilingual_embeddings` - repair bilingual retrieval after switching only the query side to a multilingual model
+- `medium_rerank_precision` - re-enable reranking so operational runbooks outrank generic policy pages
 
-Typical payloads:
+### Hard
 
-- `configure`: `chunk_size`, `top_k`, `embedding_model`, `query_embedding_model`, `rerank_enabled`
-- `reindex`: `{}`
-- `submit`: `{}`
+- `hard_context_overflow` - recover a long-context overflow regression after top-k was increased
+- `hard_release_migration` - fix release-note retrieval drift caused by index drift and over-retrieval
+- `hard_multiknob_repair` - repair a postmortem search stack that needs chunking, overlap, reranking, and context-budget fixes together
 
-## Mandatory environment variables (inference / LLM)
+## Observation space
 
-Used by **`inference.py`** (OpenAI-compatible client):
+Each observation is typed and includes both the system state and the human stakes of the task.
 
-| Variable | Purpose |
-|----------|---------|
-| `API_BASE_URL` | LLM base URL (e.g. `https://api.openai.com/v1` or your router) |
-| `MODEL_NAME` | Chat model id (e.g. `gpt-4o-mini`) |
-| `HF_TOKEN` | API key passed to `OpenAI(api_key=...)` (per hackathon naming) |
-
-**Service URL** for this environment’s HTTP API (local or HF Space):
-
-| Variable | Default |
-|----------|---------|
-| `OPENENV_SERVICE_URL` | `http://127.0.0.1:7860` |
-
-Example (PowerShell, local server running):
-
-```powershell
-$env:API_BASE_URL = "https://api.openai.com/v1"
-$env:MODEL_NAME = "gpt-4o-mini"
-$env:HF_TOKEN = "sk-..."   # your key
-$env:OPENENV_SERVICE_URL = "http://127.0.0.1:7860"
-python inference.py
+```json
+{
+  "task_id": "hard_context_overflow",
+  "task_description": "A long-context answer chain is flooding the model with too many chunks...",
+  "current_context": {
+    "operator_story": "The assistant must answer a customer escalation...",
+    "business_impact": "Context overflow causes slow, contradictory answers...",
+    "user_query": "What customer-safe workaround should we communicate...",
+    "acceptance_criteria": ["Context overflow clears", "..."],
+    "pipeline_config": {},
+    "simulation": {},
+    "corpus": {"documents": []}
+  },
+  "step_count": 0,
+  "difficulty": "hard",
+  "max_steps": 18,
+  "hints_used": 0,
+  "previous_actions": [],
+  "metadata": {
+    "title": "Recover A Long-Context Overflow Regression",
+    "reindex_required": false,
+    "overflow_sensitive": true
+  }
+}
 ```
 
-**Stdout format** (one JSON object per line after the tag; stable key order in code):
+Ground truth never appears in the observation.
 
-- `[START] {"task":"...","env":"...","model":"..."}`
-- `[STEP] {"step":n,"action":"...","reward":r,"done":bool,"error":null}`
-- `[END] {"success":bool,"steps":n,"score":0-1,"rewards":[...]}`
+## Action space
 
-Aggregate `score` is the mean of terminal **grader** scores over the three tasks. Runtime is capped under **20 minutes** for infra limits.
+The environment intentionally keeps the action set small and operational:
 
-## Install (local)
+- `configure`
+  Update retrieval/index settings such as `chunk_size`, `chunk_overlap`, `top_k`, `embedding_model`, `query_embedding_model`, `rerank_enabled`, or `max_context_tokens`.
+- `reindex`
+  Rebuild the index after chunking or embedding changes.
+- `submit`
+  Ask the grader to score the current pipeline state.
+- `request_hint`
+  Receive the next progressive hint at a small reward penalty.
+
+## Reward design
+
+Rewards are dense and intentionally shaped around operational progress rather than only the terminal grade.
+
+- Progress toward the target configuration increases reward.
+- Better retrieval quality increases reward.
+- Clearing context overflow increases reward on overflow-sensitive tasks.
+- Reindex-required tasks reward the agent for actually rebuilding the index.
+- Looping and hint usage reduce reward slightly.
+- Final submit rewards are derived from the deterministic grader and clamped inside `(0.01, 0.99)`.
+
+This gives agents a smoother learning signal than a flat 0/1 evaluator.
+
+## Grading logic
+
+Each task is scored programmatically using four components:
+
+1. configuration progress
+2. retrieval quality against ideal documents
+3. reindex completion when required
+4. context-overflow recovery when relevant
+
+All final scores are deterministic and clamped into the open interval `(0.01, 0.99)`.
+
+## API
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | liveness check |
+| `/reset` | POST | start a fresh episode |
+| `/step` | POST | apply one action |
+| `/state` | GET | inspect current state |
+| `/tasks` | GET | list the full task catalog and action schema |
+| `/grader` | POST | score a pipeline state |
+| `/grade/{task_id}` | GET/POST | direct task-specific grader endpoint |
+| `/baseline` | POST | run the deterministic baseline over flagship tasks |
+| `/validate` | GET | return benchmark self-check metadata |
+
+## Baseline behavior
+
+The repo includes two evaluation entrypoints:
+
+- `scripts/baseline.py`
+  A deterministic heuristic baseline over the flagship easy/medium/hard scenarios.
+- `inference.py`
+  The hackathon-required OpenAI-client script with structured `[START]`, `[STEP]`, and `[END]` logs.
+
+The baseline intentionally follows the minimum successful fix sequence for each flagship task:
+
+- easy: correct chunk size, reindex, submit
+- medium: align embeddings, reindex, submit
+- hard: reduce top-k, enable reranking, submit
+
+## Local setup
 
 ```powershell
 cd C:\Users\himma\Documents\openenv-rag-debugger
@@ -104,58 +161,77 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-If `Activate.ps1` is blocked, call the venv Python by full path (as above).
+If Windows blocks activation scripts, call the venv Python directly instead of activating the shell.
 
-## Run the API
+## Run locally
 
 ```powershell
 cd C:\Users\himma\Documents\openenv-rag-debugger
 .\.venv\Scripts\python.exe -m uvicorn api.server:app --host 0.0.0.0 --port 7860
 ```
 
-Smoke checks:
+Fallback without using `.venv`:
 
-- `GET http://127.0.0.1:7860/health`
-- `POST http://127.0.0.1:7860/baseline`
+```powershell
+cd C:\Users\himma\Documents\openenv-rag-debugger
+py -3.14 -m uvicorn api.server:app --host 127.0.0.1 --port 7860
+```
 
-## Deterministic oracle (no LLM)
+Useful checks:
+
+```powershell
+irm http://127.0.0.1:7860/health
+irm http://127.0.0.1:7860/tasks
+irm http://127.0.0.1:7860/validate
+irm http://127.0.0.1:7860/baseline -Method Post
+```
+
+## Run the baseline
 
 ```powershell
 $env:OPENAI_API_KEY = "sk-local-test"
 python scripts/baseline.py
 ```
 
-## Tests & local validation
+## Run the hackathon inference script
 
 ```powershell
-python -m pytest
-python scripts/local_validate.py .
+$env:API_BASE_URL = "https://api.openai.com/v1"
+$env:MODEL_NAME = "gpt-4o-mini"
+$env:HF_TOKEN = "sk-..."
+$env:OPENENV_SERVICE_URL = "http://127.0.0.1:7860"
+python inference.py
 ```
 
 ## Docker
 
 ```powershell
 cd C:\Users\himma\Documents\openenv-rag-debugger
-docker build -t rag-openenv .
-docker run --rm -p 7860:7860 rag-openenv
+docker build -t rag-pipeline-debugger .
+docker run --rm -p 7860:7860 rag-pipeline-debugger
 ```
 
-## Hugging Face Space (Docker)
+## Validation
 
-1. Push this repo to GitHub.
-2. New Space → **Docker** SDK → connect repo; tag **`openenv`**.
-3. After build: `https://<your-space>.hf.space/health` and `/baseline`.
+```powershell
+python -m pytest
+python scripts/local_validate.py .
+```
 
-For `inference.py` against the Space, set `OPENENV_SERVICE_URL` to your Space URL (no trailing slash path issues).
+If `openenv` is installed but not on `PATH`, run:
 
-## Oracle policy (for agents / grading)
+```powershell
+C:\Users\himma\AppData\Local\Python\pythoncore-3.14-64\Scripts\openenv.exe validate
+```
 
-| Task | Fix sequence |
-|------|----------------|
-| `task_easy` | `configure` `chunk_size: 500` → `reindex` → `submit` |
-| `task_medium` | both embedding fields `text-embedding-3-small` → `reindex` → `submit` |
-| `task_hard` | `configure` `top_k: 3`, `rerank_enabled: true` → `submit` |
+## Why this is stronger now
 
-## Motivation
+Compared with a single-config toy benchmark, this environment now gives reviewers:
 
-Developers misconfigure RAG daily: chunking that does not match content, index/query embedding skew, and retrieval that floods the context window. This environment is a **deterministic** testbed for agent evaluation with **typed** actions, **HTTP** deployment, and **non-LLM** grading—aligned with production debugging workflows.
+- a broader task catalog
+- clearer difficulty progression
+- richer observation context with real business pressure
+- deterministic graders with meaningful partial credit
+- a domain that maps directly to real LLM platform work
+
+That makes it much closer to something a platform team could use for regression testing or RL-style evaluation in practice.

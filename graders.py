@@ -1,142 +1,100 @@
-"""Deterministic programmatic graders (no LLM). Returns score in (0.0, 1.0)."""
+"""Programmatic graders for the RAG pipeline debugger."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
-_ROOT = Path(__file__).resolve().parent
+from tasks import get_task_spec
+
 MIN_SCORE = 0.01
 MAX_SCORE = 0.99
 
 
 def _strict_score(value: float) -> float:
-    return max(MIN_SCORE, min(MAX_SCORE, float(value)))
+    return max(MIN_SCORE, min(MAX_SCORE, round(float(value), 4)))
 
 
-def _load_cases(name: str) -> dict[str, Any]:
-    p = _ROOT / "dataset" / name
-    with open(p, encoding="utf-8") as f:
-        return json.load(f)
+def _bounded_ratio(actual: Any, target: Any) -> float:
+    if isinstance(target, bool):
+        return 1.0 if bool(actual) is bool(target) else 0.0
+    if isinstance(target, str):
+        return 1.0 if str(actual) == target else 0.0
+    if isinstance(target, int):
+        try:
+            actual_int = int(actual)
+        except (TypeError, ValueError):
+            return 0.0
+        tolerance = max(1, abs(target))
+        return max(0.0, 1.0 - (abs(actual_int - target) / tolerance))
+    return 0.0
 
 
-def _get_ground(task_id: str) -> dict[str, Any]:
-    mapping = {
-        "task_easy": "easy_cases.json",
-        "task_medium": "medium_cases.json",
-        "task_hard": "hard_cases.json",
+def _config_progress(spec: dict[str, Any], final_config: dict[str, Any]) -> tuple[float, dict[str, float]]:
+    target_config = spec["target_config"]
+    breakdown: dict[str, float] = {}
+    if not target_config:
+        return 1.0, breakdown
+
+    total = 0.0
+    for key, target_value in target_config.items():
+        progress = _bounded_ratio(final_config.get(key), target_value)
+        breakdown[key] = round(progress, 4)
+        total += progress
+    return total / len(target_config), breakdown
+
+
+def _retrieval_progress(spec: dict[str, Any], final_config: dict[str, Any]) -> float:
+    ideal_ids = spec.get("ideal_retrieval_ids", [])
+    current_ids = list(final_config.get("retrieved_preview_ids", []) or [])
+    if not ideal_ids:
+        return 1.0
+    if not current_ids:
+        return 0.0
+    overlap = len(set(ideal_ids) & set(current_ids))
+    return overlap / len(ideal_ids)
+
+
+def progress_report(task_id: str, final_config: dict[str, Any], episode: dict[str, Any] | None = None) -> dict[str, Any]:
+    spec = get_task_spec(task_id)
+    cfg = final_config or {}
+    _ = episode
+
+    config_score, config_breakdown = _config_progress(spec, cfg)
+    retrieval_score = _retrieval_progress(spec, cfg)
+    reindex_score = 1.0 if (not spec["reindex_required"] or bool(cfg.get("reindex_completed"))) else 0.0
+    overflow_score = 1.0 if (not spec["overflow_sensitive"] or not bool(cfg.get("context_overflow_detected"))) else 0.0
+
+    weights = {
+        "config": 0.45,
+        "retrieval": 0.30,
+        "reindex": 0.15,
+        "overflow": 0.10,
     }
-    data = _load_cases(mapping[task_id])
-    return data["ground_truth"]
+
+    total_progress = (
+        (config_score * weights["config"])
+        + (retrieval_score * weights["retrieval"])
+        + (reindex_score * weights["reindex"])
+        + (overflow_score * weights["overflow"])
+    )
+
+    return {
+        "task_id": spec["id"],
+        "config_progress": round(config_score, 4),
+        "config_breakdown": config_breakdown,
+        "retrieval_progress": round(retrieval_score, 4),
+        "reindex_progress": round(reindex_score, 4),
+        "overflow_progress": round(overflow_score, 4),
+        "objective_progress": round(total_progress, 4),
+    }
 
 
 def grade_episode(task_id: str, final_config: dict[str, Any], episode: dict[str, Any] | None = None) -> float:
-    """
-    Grade final pipeline config. episode is optional (for future partial credit hooks).
-    """
-    if episode is None:
-        episode = {}
-    _ = episode
-    gt = _get_ground(task_id)
-    cfg = final_config or {}
-
-    if task_id == "task_easy":
-        return _strict_score(_grade_easy(cfg, gt))
-    if task_id == "task_medium":
-        return _strict_score(_grade_medium(cfg, gt))
-    if task_id == "task_hard":
-        return _strict_score(_grade_hard(cfg, gt))
-    return MIN_SCORE
-
-
-def _grade_easy(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
-    score = 0.0
-    expected_fp = gt.get("retrieved_fingerprint")
-    fp = str(cfg.get("retrieved_fingerprint", ""))
-    if expected_fp:
-        if fp == expected_fp:
-            score += 0.7
-        elif not fp:
-            # If callers didn't provide retrieval artifacts, fall back to config-based checks.
-            if int(cfg.get("chunk_size", -1)) == int(gt["chunk_size"]):
-                score += 0.7
-    else:
-        # Backward-compatible fallback (should rarely be used)
-        if int(cfg.get("chunk_size", -1)) == int(gt["chunk_size"]):
-            score += 0.7
-    if bool(cfg.get("reindex_completed")):
-        score += 0.3
-    return score
-
-
-def _grade_medium(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
-    score = 0.0
-    expected_fp = gt.get("retrieved_fingerprint")
-    fp = str(cfg.get("retrieved_fingerprint", ""))
-    if expected_fp:
-        if fp == expected_fp:
-            score += 0.7
-        elif not fp:
-            # If retrieval artifacts are missing, fall back to config-based checks.
-            m = str(cfg.get("embedding_model", ""))
-            qm = str(cfg.get("query_embedding_model", ""))
-            t = str(gt["embedding_model"])
-            if m == t:
-                score += 0.35
-            if qm == t:
-                score += 0.35
-    else:
-        # Backward-compatible fallback (should rarely be used)
-        m = str(cfg.get("embedding_model", ""))
-        qm = str(cfg.get("query_embedding_model", ""))
-        t = str(gt["embedding_model"])
-        if m == t:
-            score += 0.35
-        if qm == t:
-            score += 0.35
-    if bool(cfg.get("reindex_completed")):
-        score += 0.3
-    return score
-
-
-def _grade_hard(cfg: dict[str, Any], gt: dict[str, Any]) -> float:
-    score = 0.0
-
-    # Prefer retrieval fingerprint match (it reflects top_k + reranking effects)
-    expected_fp = gt.get("retrieved_fingerprint")
-    fp = str(cfg.get("retrieved_fingerprint", ""))
-    if expected_fp:
-        if fp:
-            if fp == expected_fp:
-                score += 0.45
-        else:
-            # Backward-compatible fallback when retrieval artifacts aren't provided.
-            tk = int(cfg.get("top_k", 999))
-            if tk <= int(gt["top_k"]):
-                score += 0.45
-            if bool(cfg.get("rerank_enabled")) == bool(gt["rerank_enabled"]):
-                score += 0.35
-            if not bool(cfg.get("context_overflow_detected")):
-                score += 0.2
-            return score
-
-    tk = int(cfg.get("top_k", 999))
-    if tk <= int(gt["top_k"]):
-        score += 0.25
-
-    if bool(cfg.get("rerank_enabled")) == bool(gt["rerank_enabled"]):
-        score += 0.15
-
-    # context_overflow_detected is produced by retrieval simulation
-    if not bool(cfg.get("context_overflow_detected")):
-        score += 0.15
-
-    return score
+    report = progress_report(task_id, final_config, episode)
+    return _strict_score(report["objective_progress"])
 
 
 def grade_action_dummy(task_id: str, payload: dict[str, Any] | None) -> float:
-    """For /grader tests: never crash on malformed input."""
     if payload is None:
         return MIN_SCORE
     return grade_episode(task_id, payload)

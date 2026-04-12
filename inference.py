@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 from openai import OpenAI
+from tasks import flagship_task_ids, get_task_spec
 
 # --- Hackathon-required LLM configuration ---
 API_BASE_URL = os.environ.get("API_BASE_URL", "").strip().rstrip("/")
@@ -40,24 +41,24 @@ LLM_MODEL_NAME = MODEL_NAME or "gpt-4o-mini"
 OPENENV_SERVICE_URL = os.environ.get("OPENENV_SERVICE_URL", "").strip().rstrip("/")
 HF_SPACE_FALLBACK_URL = "https://lunarx912-openenv-rag-debugger.hf.space"
 
-TASK_IDS = ("task_easy", "task_medium", "task_hard")
+TASK_IDS = flagship_task_ids()
 BENCHMARK = "openenv-rag-debugger"
 
 MAX_STEPS_PER_TASK = 24
 SUCCESS_SCORE_THRESHOLD = 0.5
 TEMPERATURE = 0.2
 MAX_TOKENS = 512
-SYSTEM_PROMPT = """You are debugging a simulated RAG pipeline via HTTP actions.
+SYSTEM_PROMPT = """You are debugging a simulated production RAG pipeline via HTTP actions.
 You must output ONE JSON object only, no markdown, no extra text.
 Schema:
 {"action_type": "configure" | "reindex" | "submit" | "request_hint",
  "payload": { ... }}
 
 Rules:
-- task_easy: set chunk_size to 500, then reindex, then submit.
-- task_medium: set embedding_model and query_embedding_model to "text-embedding-3-small", reindex, submit.
-- task_hard: set top_k to 3 and rerank_enabled true, then submit.
-Payload keys for configure: chunk_size (int), top_k (int), embedding_model (str), query_embedding_model (str), rerank_enabled (bool).
+- Use the observation metadata, user_query, acceptance_criteria, and pipeline_config.
+- Apply only the minimum necessary config changes.
+- If chunking or embeddings change, reindex before submit.
+Payload keys for configure: chunk_size, chunk_overlap, top_k, embedding_model, query_embedding_model, rerank_enabled, max_context_tokens.
 Use submit with payload {} when ready to grade."""
 
 MAX_RUNTIME_SEC = 19 * 60  # stay under 20 min infra limit
@@ -172,33 +173,22 @@ def _parse_action(text: str) -> dict[str, Any]:
 
 def _heuristic_action(task_id: str, obs: dict[str, Any]) -> dict[str, Any]:
     cfg = (((obs or {}).get("current_context") or {}).get("pipeline_config") or {})
+    spec = get_task_spec(task_id)
+    target = spec["target_config"]
     reindexed = bool(cfg.get("reindex_completed", False))
 
-    if task_id == "task_easy":
-        if int(cfg.get("chunk_size", 500)) != 500:
-            return {"action_type": "configure", "payload": {"chunk_size": 500}}
-        if not reindexed:
-            return {"action_type": "reindex", "payload": {}}
-        return {"action_type": "submit", "payload": {}}
+    delta: dict[str, Any] = {}
+    for key, target_value in target.items():
+        current_value = cfg.get(key)
+        if current_value != target_value:
+            delta[key] = target_value
 
-    if task_id == "task_medium":
-        if (
-            str(cfg.get("embedding_model", "")) != "text-embedding-3-small"
-            or str(cfg.get("query_embedding_model", "")) != "text-embedding-3-small"
-        ):
-            return {
-                "action_type": "configure",
-                "payload": {
-                    "embedding_model": "text-embedding-3-small",
-                    "query_embedding_model": "text-embedding-3-small",
-                },
-            }
-        if not reindexed:
-            return {"action_type": "reindex", "payload": {}}
-        return {"action_type": "submit", "payload": {}}
+    if delta:
+        return {"action_type": "configure", "payload": delta}
 
-    if int(cfg.get("top_k", 5)) != 3 or not bool(cfg.get("rerank_enabled", False)):
-        return {"action_type": "configure", "payload": {"top_k": 3, "rerank_enabled": True}}
+    if spec["reindex_required"] and not reindexed:
+        return {"action_type": "reindex", "payload": {}}
+
     return {"action_type": "submit", "payload": {}}
 
 

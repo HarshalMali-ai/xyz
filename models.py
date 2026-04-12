@@ -12,6 +12,11 @@ class Observation(BaseModel):
     task_description: str
     current_context: dict[str, Any]
     step_count: int
+    difficulty: str = "easy"
+    max_steps: int = 20
+    hints_used: int = 0
+    previous_actions: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Action(BaseModel):

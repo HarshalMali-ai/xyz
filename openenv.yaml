@@ -1,24 +1,101 @@
 name: rag-pipeline-debugger
-version: "1.0.0"
-description: "Debug a broken RAG pipeline (chunking, embedding mismatch, context overflow)."
+version: "2.0.0"
+description: "A production-style OpenEnv benchmark where agents debug broken RAG pipelines across chunking, embedding migrations, reranking failures, and context-overflow incidents."
 tags:
   - openenv
   - real-world
   - rag
   - retrieval
+  - debugging
+  - llmops
+  - evaluation
+
 tasks:
-  - id: task_easy
+  - id: easy_chunk_alignment
     difficulty: easy
-    description: "Fix chunk_size so retrieved chunks align with ~500-token documents."
+    description: "Fix oversized chunks so support runbooks retrieve procedure-sized evidence."
     grader: true
-    grader_endpoint: /grade/task_easy
-  - id: task_medium
+    grader_endpoint: /grade/easy_chunk_alignment
+  - id: easy_chunk_overlap
+    difficulty: easy
+    description: "Restore chunk overlap so multi-step incident playbooks stop breaking across boundaries."
+    grader: true
+    grader_endpoint: /grade/easy_chunk_overlap
+  - id: easy_top_k_budget
+    difficulty: easy
+    description: "Reduce top-k for short FAQ answers to stop flooding the answer chain."
+    grader: true
+    grader_endpoint: /grade/easy_top_k_budget
+  - id: medium_embedding_migration
     difficulty: medium
-    description: "Align index/query embedding models and re-index the corpus."
+    description: "Complete an embedding migration by aligning index/query models and rebuilding the index."
     grader: true
-    grader_endpoint: /grade/task_medium
-  - id: task_hard
+    grader_endpoint: /grade/medium_embedding_migration
+  - id: medium_multilingual_embeddings
+    difficulty: medium
+    description: "Repair multilingual retrieval by rebuilding the index with the matching multilingual embedding model."
+    grader: true
+    grader_endpoint: /grade/medium_multilingual_embeddings
+  - id: medium_rerank_precision
+    difficulty: medium
+    description: "Re-enable reranking after hybrid retrieval so operational runbooks outrank generic policy pages."
+    grader: true
+    grader_endpoint: /grade/medium_rerank_precision
+  - id: hard_context_overflow
     difficulty: hard
-    description: "Reduce top_k and enable reranking to avoid context window overflow."
+    description: "Recover a long-context overflow regression by reducing top-k and restoring reranking."
     grader: true
-    grader_endpoint: /grade/task_hard
+    grader_endpoint: /grade/hard_context_overflow
+  - id: hard_release_migration
+    difficulty: hard
+    description: "Fix release-note retrieval drift caused by a partial embedding migration plus over-retrieval."
+    grader: true
+    grader_endpoint: /grade/hard_release_migration
+  - id: hard_multiknob_repair
+    difficulty: hard
+    description: "Stabilize a multi-knob postmortem retrieval failure involving chunking, overlap, reranking, and context budget."
+    grader: true
+    grader_endpoint: /grade/hard_multiknob_repair
+
+action_space:
+  type: dict
+  actions:
+    - configure
+    - reindex
+    - submit
+    - request_hint
+
+observation_space:
+  type: dict
+  fields:
+    - task_id
+    - task_description
+    - current_context
+    - step_count
+    - difficulty
+    - max_steps
+    - hints_used
+    - previous_actions
+    - metadata
+
+reward:
+  min: 0.01
+  max: 0.99
+  type: dense
+  description: "Dense reward from objective progress, with extra signal for reindexing, configuration quality, and context-budget recovery."
+
+episode:
+  max_steps: 20
+  termination: "submit action or max_steps reached"
+
+api:
+  port: 7860
+  endpoints:
+    - GET /health
+    - POST /reset
+    - POST /step
+    - GET /state
+    - GET /tasks
+    - POST /grader
+    - GET /grade/{task_id}
+    - POST /baseline

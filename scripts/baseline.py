@@ -15,6 +15,7 @@ if ROOT not in sys.path:
 from environment.rag_environment import RAGPipelineEnv
 from graders import grade_episode
 from models import Action
+from tasks import flagship_task_ids
 
 
 def main() -> None:
@@ -25,14 +26,14 @@ def main() -> None:
         )
 
     scores: dict[str, float] = {}
-    for tid in ("task_easy", "task_medium", "task_hard"):
+    for tid in flagship_task_ids():
         e = RAGPipelineEnv()
         e.reset(task_id=tid)
-        if tid == "task_easy":
-            e.step(Action(action_type="configure", payload={"chunk_size": 500}))
+        if tid == "easy_chunk_alignment":
+            e.step(Action(action_type="configure", payload={"chunk_size": 450}))
             e.step(Action(action_type="reindex", payload={}))
             e.step(Action(action_type="submit", payload={}))
-        elif tid == "task_medium":
+        elif tid == "medium_embedding_migration":
             e.step(
                 Action(
                     action_type="configure",
@@ -51,9 +52,11 @@ def main() -> None:
         g = grade_episode(tid, st.get("config", {}), {"actions": st.get("episode_actions", [])})
         scores[tid] = float(g)
 
+    average_score = sum(scores.values()) / max(1, len(scores))
     print("Baseline scores (0.0 - 1.0):")
     for k, v in scores.items():
         print(f"  {k}: {v:.3f}")
+    print(f"  average: {average_score:.3f}")
 
 
 if __name__ == "__main__":

@@ -21,14 +21,15 @@ def test_tasks_schema() -> None:
     r = client.get("/tasks")
     assert r.status_code == 200
     tasks = r.json()
-    assert len(tasks) >= 3
+    assert len(tasks) >= 9
     assert "action_schema" in tasks[0]
     assert "grader" in tasks[0]
+    assert "business_impact" in tasks[0]
 
 
 def test_reset_step_submit() -> None:
-    client.post("/reset", json={"task_id": "task_easy"})
-    r = client.post("/step", json={"action": {"action_type": "configure", "payload": {"chunk_size": 500}}})
+    client.post("/reset", json={"task_id": "easy_chunk_alignment"})
+    r = client.post("/step", json={"action": {"action_type": "configure", "payload": {"chunk_size": 450}}})
     assert r.status_code == 200
     assert 0.0 < r.json()["reward"]["score"] < 1.0
 
@@ -38,5 +39,9 @@ def test_baseline_fast() -> None:
     assert r.status_code == 200
     body = r.json()
     assert "scores" in body
-    assert set(body["scores"].keys()) == {"task_easy", "task_medium", "task_hard"}
+    assert set(body["scores"].keys()) == {
+        "easy_chunk_alignment",
+        "medium_embedding_migration",
+        "hard_context_overflow",
+    }
     assert all(0.0 < v < 1.0 for v in body["scores"].values())

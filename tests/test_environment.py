@@ -12,8 +12,8 @@ def test_reset_and_state_before_observe() -> None:
 
 def test_episode_easy_success() -> None:
     e = RAGPipelineEnv()
-    e.reset(task_id="task_easy")
-    e.step(Action(action_type="configure", payload={"chunk_size": 500}))
+    e.reset(task_id="easy_chunk_alignment")
+    e.step(Action(action_type="configure", payload={"chunk_size": 450}))
     e.step(Action(action_type="reindex", payload={}))
     o, r, done, info = e.step(Action(action_type="submit", payload={}))
     assert done is True
@@ -23,7 +23,7 @@ def test_episode_easy_success() -> None:
 
 def test_null_action() -> None:
     e = RAGPipelineEnv()
-    e.reset(task_id="task_easy")
+    e.reset(task_id="easy_chunk_alignment")
     o, r, done, info = e.step(None)
     assert 0.0 < r < 1.0
     assert done is False
@@ -31,7 +31,7 @@ def test_null_action() -> None:
 
 def test_max_steps() -> None:
     e = RAGPipelineEnv()
-    e.reset(task_id="task_easy")
+    e.reset(task_id="easy_chunk_alignment")
     last_done = False
     for _ in range(30):
         o, r, done, info = e.step(Action(action_type="request_hint", payload={}))

@@ -1,4 +1,4 @@
-"""FastAPI server: all endpoints required by the hackathon guide."""
+"""FastAPI server for the RAG pipeline debugger benchmark."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, ValidationError
 from environment.rag_environment import RAGPipelineEnv
 from graders import MIN_SCORE, grade_episode
 from models import Action, Reward
-from tasks import list_tasks_payload
+from tasks import flagship_task_ids, list_tasks_payload
 
 _env: RAGPipelineEnv | None = None
 _tasks_payload_cache: list[dict[str, Any]] | None = None
@@ -80,6 +80,8 @@ def root() -> dict[str, Any]:
     return {
         "name": "OpenEnv RAG Pipeline Debugger",
         "status": "running",
+        "domain": "production RAG incident debugging",
+        "tasks_count": len(_tasks_payload_cache or []),
         "docs": "/docs",
         "health": "/health",
         "tasks": "/tasks",
@@ -160,6 +162,7 @@ def validate_route() -> dict[str, Any]:
         "checks": checks,
         "env_name": "rag-pipeline-debugger",
         "version": "1.0.0",
+        "flagship_tasks": list(flagship_task_ids()),
     }
 
 
@@ -202,14 +205,14 @@ def baseline_route() -> dict[str, Any]:
         pass  # optional per guide — script may warn; we succeed without it
 
     scores: dict[str, float] = {}
-    for tid in ("task_easy", "task_medium", "task_hard"):
+    for tid in flagship_task_ids():
         e = RAGPipelineEnv()
         e.reset(task_id=tid)
-        if tid == "task_easy":
-            e.step(Action(action_type="configure", payload={"chunk_size": 500}))
+        if tid == "easy_chunk_alignment":
+            e.step(Action(action_type="configure", payload={"chunk_size": 450}))
             e.step(Action(action_type="reindex", payload={}))
             e.step(Action(action_type="submit", payload={}))
-        elif tid == "task_medium":
+        elif tid == "medium_embedding_migration":
             e.step(
                 Action(
                     action_type="configure",
@@ -231,4 +234,5 @@ def baseline_route() -> dict[str, Any]:
     elapsed = time.time() - t0
     if elapsed > 60:
         raise HTTPException(status_code=504, detail="baseline timeout")
-    return {"scores": scores, "elapsed_sec": round(elapsed, 3)}
+    average_score = round(sum(scores.values()) / max(1, len(scores)), 3)
+    return {"scores": scores, "average_score": average_score, "elapsed_sec": round(elapsed, 3)}
